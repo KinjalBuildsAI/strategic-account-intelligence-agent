@@ -313,7 +313,7 @@ def post_webhook(url: str, payload: dict):
 # =========================
 
 def perplexity_brief(company: str, website: str, persona: str, value_prop: str, initiative: str, region: str, competitor: str, model: str):
-    api_key = must_env("PERPLEXITY_API_KEY")
+    api_key = must_env("KinjalsSecretAPIKey")
 
     endpoint = "https://api.perplexity.ai/chat/completions"
 
@@ -697,7 +697,7 @@ def render_agent(make_contact_url: str):
         region = st.text_input("Region / BU (optional)", placeholder="US Commercial / EU Ops / Manufacturing")
         competitor = st.text_input("Competitors you’re up against (optional)", placeholder="Vendor A, Vendor B")
 
-        model = st.selectbox("Perplexity model", ["sonar", "sonar-pro"], index=0)
+        ### model = st.selectbox("Perplexity model", ["sonar", "sonar-pro"], index=0)
         run = st.form_submit_button("Run Agent (uses 1 credit)")
 
     if not run:
@@ -717,7 +717,7 @@ def render_agent(make_contact_url: str):
         "initiative": initiative.strip(),
         "region": region.strip(),
         "competitor": competitor.strip(),
-        "model": model,
+        ### "model": model,
         "week": iso_week_id(now_et()),
     }, sort_keys=True)
     h = hashlib.sha256(raw.encode("utf-8")).hexdigest()
@@ -739,7 +739,7 @@ def render_agent(make_contact_url: str):
                     initiative=initiative.strip(),
                     region=region.strip(),
                     competitor=competitor.strip(),
-                    model=model,
+                    ### model=model,
                 )
                 db_set(cache_key, brief)
 
@@ -747,7 +747,7 @@ def render_agent(make_contact_url: str):
                 "ran_at": to_iso(now_et()),
                 "company": company.strip(),
                 "persona": persona.strip(),
-                "model": model,
+               ### "model": model,
                 "credits_remaining_after": remaining_after,
                 "brief": brief,
             }
@@ -794,7 +794,8 @@ def render_history():
     for item in hist:
         st.write("---")
         st.write(f"**{item.get('company','')}** — {item.get('persona','')} — {item.get('ran_at','')}")
-        st.write(f"Model: {item.get('model','')} | Credits after: {item.get('credits_remaining_after','')}")
+       ### st.write(f"Model: {item.get('model','')} | Credits after: {item.get('credits_remaining_after','')}")
+	st.write (f"Credits after: {item.get('credits_remaining_after','')}"
         with st.expander("View brief JSON"):
             st.json(item.get("brief", {}))
 
