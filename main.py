@@ -312,19 +312,80 @@ def post_webhook(url: str, payload: dict):
 # Perplexity client
 # =========================
 
-def perplexity_brief(company: str, website: str, persona: str, value_prop: str, initiative: str, region: str, competitor: str, model: str):
-    api_key = must_env("KinjalsSecretAPIKey")
-
+def perplexity_brief(company: str, website: str, persona: str, value_prop: str,
+                     initiative: str, region: str, competitor: str, model: str):
+    # IMPORTANT: Your Replit Secret must be named PERPLEXITY_API_KEY
+    api_key = must_env("KinjalsSecretAPIKey").strip()
     endpoint = "https://api.perplexity.ai/chat/completions"
+
+    # JSON Schema for Perplexity Structured Outputs (forces valid JSON)
+    evidence_schema = {
+        "type": "object",
+        "properties": {
+            "url": {"type": "string"},
+            "title": {"type": "string"},
+            "snippet": {"type": "string"},
+            "date": {"type": "string"}
+        },
+        "required": ["url", "title", "snippet", "date"],
+        "additionalProperties": False
+    }
+
+    module_schema = {
+        "type": "object",
+        "properties": {
+            "bullets": {"type": "array", "items": {"type": "string"}},
+            "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+            "evidence": {"type": "array", "items": evidence_schema}
+        },
+        "required": ["bullets", "confidence", "evidence"],
+        "additionalProperties": False
+    }
+
+    brief_schema = {
+        "type": "object",
+        "properties": {
+            "generated_at": {"type": "string"},
+            "search_recency": {"type": "string"},
+            "company": {"type": "string"},
+            "persona": {"type": "string"},
+            "modules": {
+                "type": "object",
+                "properties": {
+                    "account_summary": module_schema,
+                    "top_3_priorities": module_schema,
+                    "strategic_blockers": module_schema,
+                    "news_signal": module_schema,
+                    "recommended_messaging": module_schema,
+                    "discovery_questions": module_schema,
+                    "risks_objections": module_schema,
+                    "next_step_email": module_schema
+                },
+                "required": [
+                    "account_summary",
+                    "top_3_priorities",
+                    "strategic_blockers",
+                    "news_signal",
+                    "recommended_messaging",
+                    "discovery_questions",
+                    "risks_objections",
+                    "next_step_email"
+                ],
+                "additionalProperties": False
+            }
+        },
+        "required": ["generated_at", "search_recency", "company", "persona", "modules"],
+        "additionalProperties": False
+    }
 
     system = (
         "You are a strategic enterprise sales/account planning assistant. "
-        "You must be proof-first: every important claim must be supported by a citation. "
+        "Be proof-first: support key claims with short evidence snippets and URLs. "
         "Be concise, specific, and avoid generic fluff."
     )
 
     user = f"""
-Create a 1-page, proof-first strategic account intelligence brief.
+Create a 1-page, proof-first strategic account intelligence brief using public sources.
 
 Inputs:
 - Company: {company}
@@ -336,43 +397,19 @@ Optional context:
 - Region/BU: {region or "N/A"}
 - Competitor(s): {competitor or "N/A"}
 
-Requirements:
-1) Return STRICT JSON (no markdown, no extra text).
-2) Include freshness stamps: "generated_at" (ISO) and "search_recency" (e.g., month).
-3) For each module, include:
-   - "bullets": 3–7 bullets
-   - "confidence": number 0 to 1
-   - "evidence": array of objects with {{"url","title","snippet","date"}}.
-   Evidence snippets should be short and directly support the bullet.
-4) Modules (exact keys):
-   - account_summary
-   - top_3_priorities
-   - strategic_blockers
-   - news_signal
-   - recommended_messaging
-   - discovery_questions
-   - risks_objections
-   - next_step_email
+Hard rules:
+- Output MUST be valid JSON that matches the required schema exactly.
+- No markdown, no extra commentary, no code fences.
+- evidence.snippet must be short and directly support a bullet.
+- If uncertain, say so and lower confidence.
 
-Notes:
-- Prefer public sources: SEC filings, company investor relations, reputable news.
-- If information is uncertain, say so and lower confidence.
-
-Return JSON with this shape:
-{{
-  "generated_at": "...",
-  "search_recency": "month",
-  "company": "...",
-  "persona": "...",
-  "modules": {{
-    "account_summary": {{"bullets":[], "confidence":0.0, "evidence":[]}},
-    ...
-  }}
-}}
+Also include:
+- generated_at as ISO timestamp (ET ok)
+- search_recency as "month"
 """.strip()
 
     payload = {
-        "model": model,  # sonar is cheapest; sonar-pro is stronger
+        "model": model,
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
@@ -380,10 +417,17 @@ Return JSON with this shape:
         "temperature": 0.2,
         "max_tokens": 1400,
         "search_recency_filter": "month",
-        ###"response_format": {"type": "json_object"},
         "web_search_options": {"search_context_size": "low"},
         "return_related_questions": False,
         "return_images": False,
+
+        # ✅ Perplexity Structured Outputs (JSON Schema)
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+                "schema": brief_schema
+            }
+        }
     }
 
     headers = {
@@ -391,17 +435,24 @@ Return JSON with this shape:
         "Content-Type": "application/json",
     }
 
-    r = requests.post(endpoint, headers=headers, json=payload, timeout=60)
+    # NOTE: First-ever use of a new schema can take longer; increase timeout.
+    r = requests.post(endpoint, headers=headers, json=payload, timeout=120)
     if r.status_code != 200:
-    	raise ValueError(f"Perplexity error {r.status_code}: {r.text}")
-    r.raise_for_status()
+        raise ValueError(f"Perplexity error {r.status_code}: {r.text}")
     data = r.json()
+
     content = data["choices"][0]["message"]["content"]
 
-    # content should already be JSON due to response_format, but we still parse to be safe
-    brief = json.loads(content)
+    # With json_schema, content should be valid JSON
+    try:
+        brief = json.loads(content)
+    except Exception as e:
+        preview = content[:1500]
+        raise ValueError(
+            f"Model returned invalid JSON even though json_schema was requested: {e}\n\n"
+            f"Raw output (first 1500 chars):\n{preview}"
+        )
 
-    # Attach top-level API metadata for debugging / transparency
     brief["_api_meta"] = {
         "model": data.get("model"),
         "created": data.get("created"),
@@ -409,6 +460,7 @@ Return JSON with this shape:
         "search_results": data.get("search_results", []),
     }
     return brief
+
 
 
 # =========================
@@ -699,7 +751,24 @@ def render_agent(make_contact_url: str):
         region = st.text_input("Region / BU (optional)", placeholder="US Commercial / EU Ops / Manufacturing")
         competitor = st.text_input("Competitors you’re up against (optional)", placeholder="Vendor A, Vendor B")
 
-        model = st.selectbox("Perplexity model", ["sonar", "sonar"], index=0)
+        model_choice = st.selectbox(
+    		"Perplexity model",
+    		[
+        		"sonar (available)",
+        		"sonar-pro (pro — not available yet)",
+        		"sonar-reasoning-pro (pro — not available yet)",
+        		"sonar-deep-research (pro — not available yet)",
+    		],
+    		index=0
+	)
+
+	# Always default to sonar for now
+	model = "sonar"
+
+	# If user picks anything else, show message and still use sonar
+	if model_choice != "sonar (available)":
+    		st.info('Pro features are not available right now. Using "sonar" instead.')
+
         run = st.form_submit_button("Run Agent (uses 1 credit)")
 
     if not run:
