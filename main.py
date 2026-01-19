@@ -763,6 +763,7 @@ def render_agent(make_contact_url: str):
 	)
 
 	### Always default to sonar for now
+	
 	model = "sonar"
 
 	# If user picks anything else, show message and still use sonar
