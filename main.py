@@ -380,7 +380,7 @@ Return JSON with this shape:
         "temperature": 0.2,
         "max_tokens": 1400,
         "search_recency_filter": "month",
-        "response_format": {"type": "json_object"},
+        ###"response_format": {"type": "json_object"},
         "web_search_options": {"search_context_size": "low"},
         "return_related_questions": False,
         "return_images": False,
@@ -391,7 +391,9 @@ Return JSON with this shape:
         "Content-Type": "application/json",
     }
 
-    r = requests.post(endpoint, headers=headers, data=json.dumps(payload), timeout=60)
+    r = requests.post(endpoint, headers=headers, json=payload, timeout=60)
+    if r.status_code != 200:
+    	raise ValueError(f"Perplexity error {r.status_code}: {r.text}")
     r.raise_for_status()
     data = r.json()
     content = data["choices"][0]["message"]["content"]
