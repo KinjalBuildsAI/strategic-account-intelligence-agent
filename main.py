@@ -751,26 +751,26 @@ def render_agent(make_contact_url: str):
         region = st.text_input("Region / BU (optional)", placeholder="US Commercial / EU Ops / Manufacturing")
         competitor = st.text_input("Competitors you’re up against (optional)", placeholder="Vendor A, Vendor B")
 
-        model_choice = st.selectbox(
-    		"Perplexity model",
-    		[
-        		"sonar (available)",
-        		"sonar-pro (pro — not available yet)",
-        		"sonar-reasoning-pro (pro — not available yet)",
-        		"sonar-deep-research (pro — not available yet)",
-    		],
-    		index=0
-	)
+    model_choice = st.selectbox(
+        "Perplexity model",
+        [
+            "sonar (available)",
+            "sonar-pro (pro — not available yet)",
+            "sonar-reasoning-pro (pro — not available yet)",
+            "sonar-deep-research (pro — not available yet)",
+        ],
+        index=0
+    )
 
-	### Always default to sonar for now
-	
-	model = "sonar"
+    ### Always default to sonar for now
 
-	# If user picks anything else, show message and still use sonar
-	if model_choice != "sonar (available)":
-    		st.info('Pro features are not available right now. Using "sonar" instead.')
+    model = "sonar"
 
-        run = st.form_submit_button("Run Agent (uses 1 credit)")
+    # If user picks anything else, show message and still use sonar
+    if model_choice != "sonar (available)":
+        st.info('Pro features are not available right now. Using "sonar" instead.')
+
+    run = st.form_submit_button("Run Agent (uses 1 credit)")
 
     if not run:
         return
