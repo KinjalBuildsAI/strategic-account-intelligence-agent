@@ -762,7 +762,7 @@ def render_agent(make_contact_url: str):
         index=0
     )
 
-    ### Always default to sonar for now
+    ### Allways default to sonar for now
 
     model = "sonar"
 
