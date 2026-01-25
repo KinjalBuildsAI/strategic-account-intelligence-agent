@@ -312,86 +312,36 @@ def post_webhook(url: str, payload: dict):
 # Perplexity client
 # =========================
 
-def perplexity_brief(
-    company: str,
-    website: str,
-    persona: str,
-    value_prop: str,
-    initiative: str,
-    region: str,
-    competitor: str,
-    model: str,
-):
-    # Uses Replit Secret named exactly: KinjalsSecretAPIKey
+def perplexity_brief(company: str, website: str, persona: str, value_prop: str,
+                     initiative: str, region: str, competitor: str, model: str):
+    # IMPORTANT: Your Replit Secret must be named PERPLEXITY_API_KEY
     api_key = must_env("KinjalsSecretAPIKey").strip()
     endpoint = "https://api.perplexity.ai/chat/completions"
 
-    system = (
-        "You are a strategic enterprise sales/account planning assistant. "
-        "Be proof-first: every important claim should be supported by evidence with URLs. "
-        "Be concise, specific, and avoid generic fluff."
-    )
-
-    user = f"""
-Create a 1-page, proof-first strategic account intelligence brief.
-
-Inputs:
-- Company: {company}
-- Website: {website}
-- Target persona: {persona}
-- My value proposition: {value_prop}
-Optional context:
-- Initiative: {initiative or "N/A"}
-- Region/BU: {region or "N/A"}
-- Competitor(s): {competitor or "N/A"}
-
-Output rules:
-- Return JSON only (no markdown, no extra text).
-- Each module must include:
-  - bullets: 3–7 bullets
-  - confidence: number 0..1
-  - evidence: list of objects with url, title, snippet, date
-- Evidence snippets must be short and directly support a bullet.
-- If uncertain, say so and lower confidence.
-
-Modules (exact keys):
-- account_summary
-- top_3_priorities
-- strategic_blockers
-- news_signal
-- recommended_messaging
-- discovery_questions
-- risks_objections
-- next_step_email
-
-Also include:
-- generated_at (ISO timestamp)
-- search_recency ("month")
-""".strip()
-
-    # Structured-output schema (prevents broken JSON). If the API rejects it for any reason,
-    # we automatically retry once without response_format.
+    # JSON Schema for Perplexity Structured Outputs (forces valid JSON)
     evidence_schema = {
         "type": "object",
         "properties": {
             "url": {"type": "string"},
             "title": {"type": "string"},
             "snippet": {"type": "string"},
-            "date": {"type": "string"},
+            "date": {"type": "string"}
         },
         "required": ["url", "title", "snippet", "date"],
-        "additionalProperties": False,
+        "additionalProperties": False
     }
+
     module_schema = {
         "type": "object",
         "properties": {
             "bullets": {"type": "array", "items": {"type": "string"}},
             "confidence": {"type": "number", "minimum": 0, "maximum": 1},
-            "evidence": {"type": "array", "items": evidence_schema},
+            "evidence": {"type": "array", "items": evidence_schema}
         },
         "required": ["bullets", "confidence", "evidence"],
-        "additionalProperties": False,
+        "additionalProperties": False
     }
+
     brief_schema = {
         "type": "object",
         "properties": {
@@ -409,7 +359,7 @@ Also include:
                     "recommended_messaging": module_schema,
                     "discovery_questions": module_schema,
                     "risks_objections": module_schema,
-                    "next_step_email": module_schema,
+                    "next_step_email": module_schema
                 },
                 "required": [
                     "account_summary",
@@ -419,14 +369,44 @@ Also include:
                     "recommended_messaging",
                     "discovery_questions",
                     "risks_objections",
-                    "next_step_email",
+                    "next_step_email"
                 ],
-                "additionalProperties": False,
-            },
+                "additionalProperties": False
+            }
         },
         "required": ["generated_at", "search_recency", "company", "persona", "modules"],
-        "additionalProperties": False,
+        "additionalProperties": False
     }
+
+    system = (
+        "You are a strategic enterprise sales/account planning assistant. "
+        "Be proof-first: support key claims with short evidence snippets and URLs. "
+        "Be concise, specific, and avoid generic fluff."
+    )
+
+    user = f"""
+Create a 1-page, proof-first strategic account intelligence brief using public sources.
+
+Inputs:
+- Company: {company}
+- Website: {website}
+- Target persona: {persona}
+- My value proposition: {value_prop}
+Optional context:
+- Initiative: {initiative or "N/A"}
+- Region/BU: {region or "N/A"}
+- Competitor(s): {competitor or "N/A"}
+
+Hard rules:
+- Output MUST be valid JSON that matches the required schema exactly.
+- No markdown, no extra commentary, no code fences.
+- evidence.snippet must be short and directly support a bullet.
+- If uncertain, say so and lower confidence.
+
+Also include:
+- generated_at as ISO timestamp (ET ok)
+- search_recency as "month"
+""".strip()
 
     payload = {
         "model": model,
@@ -440,10 +420,14 @@ Also include:
         "web_search_options": {"search_context_size": "low"},
         "return_related_questions": False,
         "return_images": False,
+
+        # ✅ Perplexity Structured Outputs (JSON Schema)
         "response_format": {
             "type": "json_schema",
-            "json_schema": {"schema": brief_schema},
-        },
+            "json_schema": {
+                "schema": brief_schema
+            }
+        }
     }
 
     headers = {
@@ -451,35 +435,22 @@ Also include:
         "Content-Type": "application/json",
     }
 
-    def do_call(p: dict):
-        return requests.post(endpoint, headers=headers, json=p, timeout=120)
-
-    r = do_call(payload)
-
-    # Fallback: if response_format is rejected, retry once without it.
-    if r.status_code == 400:
-        try:
-            err_text = r.text or ""
-        except Exception:
-            err_text = ""
-        # Many APIs include a message mentioning the bad field; we keep this check loose.
-        if "response_format" in err_text or "json_schema" in err_text:
-            payload2 = dict(payload)
-            payload2.pop("response_format", None)
-            r = do_call(payload2)
-
+    # NOTE: First-ever use of a new schema can take longer; increase timeout.
+    r = requests.post(endpoint, headers=headers, json=payload, timeout=120)
     if r.status_code != 200:
         raise ValueError(f"Perplexity error {r.status_code}: {r.text}")
-
     data = r.json()
+
     content = data["choices"][0]["message"]["content"]
 
+    # With json_schema, content should be valid JSON
     try:
         brief = json.loads(content)
     except Exception as e:
         preview = content[:1500]
         raise ValueError(
-            f"Invalid JSON returned by model: {e}\n\nRaw output (first 1500 chars):\n{preview}"
+            f"Model returned invalid JSON even though json_schema was requested: {e}\n\n"
+            f"Raw output (first 1500 chars):\n{preview}"
         )
 
     brief["_api_meta"] = {
@@ -490,6 +461,11 @@ Also include:
     }
     return brief
 
+
+
+# =========================
+# PDF generation
+# =========================
 
 def brief_to_pdf_bytes(brief: dict) -> bytes:
     buf = BytesIO()
@@ -739,7 +715,6 @@ def render_agent(make_contact_url: str):
     st.write(f"Logged in as: **{email}**")
     st.write(f"Credits remaining: **{user.credits}**")
 
-    # Out of credits: lock the agent, show placeholder purchase + contact owner
     if user.credits <= 0:
         st.error("You have 0 credits remaining. This demo disables runs after two free uses.")
 
@@ -766,48 +741,36 @@ def render_agent(make_contact_url: str):
         return
 
     st.write("### Inputs")
-
-    # UI: show model choices, but ALWAYS run sonar unless/until you enable pro models.
-    model_labels = {
-        "sonar": "sonar (available)",
-        "sonar-pro": "sonar-pro (pro — not available yet)",
-        "sonar-reasoning-pro": "sonar-reasoning-pro (pro — not available yet)",
-        "sonar-deep-research": "sonar-deep-research (pro — not available yet)",
-    }
-
     with st.form("agent_inputs"):
         company = st.text_input("Company name *", placeholder="BioMarin")
         website = st.text_input("Company website *", placeholder="https://www.biomarin.com")
         persona = st.text_input("Target persona *", placeholder="CIO")
-        value_prop = st.text_area(
-            "Your value proposition *",
-            placeholder="We provide AI-driven logistics optimization that reduces carbon footprints.",
-        )
-
+        value_prop = st.text_area("Your value proposition *", placeholder="We provide AI-driven logistics optimization that reduces carbon footprints.")
         st.write("Optional (improves personalization)")
-        initiative = st.text_input(
-            "Initiative (optional)",
-            placeholder="ERP modernization / cost takeout / supply chain resilience",
-        )
+        initiative = st.text_input("Initiative (optional)", placeholder="ERP modernization / cost takeout / supply chain resilience")
         region = st.text_input("Region / BU (optional)", placeholder="US Commercial / EU Ops / Manufacturing")
         competitor = st.text_input("Competitors you’re up against (optional)", placeholder="Vendor A, Vendor B")
 
         model_choice = st.selectbox(
-            "Perplexity model",
-            options=list(model_labels.keys()),
-            index=0,
-            format_func=lambda k: model_labels.get(k, k),
+                "Perplexity model",
+                [
+                        "sonar (available)",
+                        "sonar-pro (pro — not available yet)",
+                        "sonar-reasoning-pro (pro — not available yet)",
+                        "sonar-deep-research (pro — not available yet)",
+                ],
+                index=0
         )
 
+        ### Always default to sonar for now
+        model = "sonar"
+        # If user picks anything else, show message and still use sonar
+        if model_choice != "sonar (available)":
+            st.info('Pro features are not available right now. Using "sonar" instead.')
         run = st.form_submit_button("Run Agent (uses 1 credit)")
 
     if not run:
         return
-
-    # Always default to sonar for now (even if user picks a pro option).
-    model = "sonar"
-    if model_choice != "sonar":
-        st.info('Pro features are not available right now. Using "sonar" instead.')
 
     required = [company, website, persona, value_prop]
     if any(not x.strip() for x in required):
@@ -815,24 +778,20 @@ def render_agent(make_contact_url: str):
         return
 
     # Cache key (to reduce Perplexity spend)
-    raw = json.dumps(
-        {
-            "company": company.strip(),
-            "website": website.strip(),
-            "persona": persona.strip(),
-            "value_prop": value_prop.strip(),
-            "initiative": initiative.strip(),
-            "region": region.strip(),
-            "competitor": competitor.strip(),
-            "model": model,  # effective model (always sonar for now)
-            "week": iso_week_id(now_et()),
-        },
-        sort_keys=True,
-    )
+    raw = json.dumps({
+        "company": company.strip(),
+        "website": website.strip(),
+        "persona": persona.strip(),
+        "value_prop": value_prop.strip(),
+        "initiative": initiative.strip(),
+        "region": region.strip(),
+        "competitor": competitor.strip(),
+        "model": model,
+        "week": iso_week_id(now_et()),
+    }, sort_keys=True)
     h = hashlib.sha256(raw.encode("utf-8")).hexdigest()
     cache_key = k_cache(h)
 
-    # Decrement credit only on attempted run; refund on failure below.
     remaining_after = decrement_credit(email)
 
     with st.spinner("Researching with Perplexity..."):
@@ -857,8 +816,7 @@ def render_agent(make_contact_url: str):
                 "ran_at": to_iso(now_et()),
                 "company": company.strip(),
                 "persona": persona.strip(),
-                "selected_model": model_choice,  # what user clicked
-                "effective_model": model,        # what we actually ran
+                "model": model,
                 "credits_remaining_after": remaining_after,
                 "brief": brief,
             }
@@ -874,6 +832,7 @@ def render_agent(make_contact_url: str):
 
     # Display result
     st.write("## Executive Brief (Proof-First)")
+
     st.json(brief)
 
     st.write("## Download 1-page PDF")
@@ -882,8 +841,8 @@ def render_agent(make_contact_url: str):
         st.download_button(
             label="Download PDF",
             data=pdf_bytes,
-            file_name=f"{company.strip().replace(' ', '_')}_brief.pdf",
-            mime="application/pdf",
+            file_name=f"{company.strip().replace(' ','_')}_brief.pdf",
+            mime="application/pdf"
         )
     except Exception as e:
         st.warning(f"PDF generation failed: {e}")
@@ -904,8 +863,8 @@ def render_history():
     for item in hist:
         st.write("---")
         st.write(f"**{item.get('company','')}** — {item.get('persona','')} — {item.get('ran_at','')}")
-        model_display = item.get("effective_model") or item.get("model","")
-        st.write(f"Model: {model_display} | Credits after: {item.get('credits_remaining_after','')}")
+        st.write(f"Model: {item.get('model','')} | Credits after: {item.get('credits_remaining_after','')}")
+        # View stored brief JSON
         with st.expander("View brief JSON"):
             st.json(item.get("brief", {}))
 
