@@ -17,6 +17,7 @@ from reportlab.lib.pagesizes import letter
 from replit import db  # Replit Key-Value Store (credits/codes/users)
 
 # Comment for testing 
+# comment for features branch of paid subscription
 # =========================
 # Constants you can edit
 # =========================
